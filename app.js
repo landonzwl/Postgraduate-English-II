@@ -112,19 +112,21 @@ function viewHome() {
     const st = stats[y];
     const stat = st ? `已刷 ${st.attempts} 次 · 最佳正确率 ${st.best}%` : '未开始';
     const custom = !!customBanks[y];
+    const kind = custom ? '自建题库（本地保存）'
+      : (y >= 2010 && y <= 2026 ? '真题库 · 解析为 AI 生成' : 'AI 演示题库');
     const del = custom ? `<button class="btn ghost" style="margin-top:8px;font-size:12px;padding:4px 10px" onclick="event.stopPropagation();deleteBank(${y})">删除此题库</button>` : '';
     return `<div class="card" onclick="go('paper',{y:${y}})">
       <h3>${esc(bankLabel(y))}</h3>
-      <div class="sub">${custom ? '自建题库（本地保存）' : '内置演示题库'} · ${countOf(y)} 题</div>
+      <div class="sub">${kind} · ${countOf(y)} 题</div>
       <div class="stat">${stat}</div>${del}</div>`;
   }).join('');
   const wrongN = wrongBook.length;
   app.innerHTML = `
-    <div class="hero"><h1>考研英语刷题器 · 开放版</h1>
-      <p>无版权风险 · 内置纯 AI 演示题库 · 支持拖拽导入自建题库</p></div>
+    <div class="hero"><h1>考研英语（二）真题刷题器</h1>
+      <p>2010 – 2026 · 17 套真题 + AI 演示卷 · 解析与译文/范文均为 AI 生成 · 支持拖拽导入自建题库</p></div>
     <div class="dropzone" id="dropzone" onclick="document.getElementById('bankfile').click()">
       <b>将题库 .js / .json 文件拖到这里</b>（或点击选择文件）
-      <div class="sub">没有题库？看 README 里的提示词模板，把任意 PDF / Word 丢给 AI，几分钟生成一个</div>
+      <div class="sub">想要更高质量的深度解析？看 README 里的提示词模板，让 AI 生成专属题库拖入即可</div>
       <input type="file" id="bankfile" accept=".js,.json" style="display:none" onchange="importBank(this.files)">
     </div>
     <div class="grid">
@@ -139,9 +141,9 @@ function viewHome() {
       </div>
       <div class="card wide"><h3 style="font-size:15px">版权与质量说明（重要）</h3>
         <div class="sub" style="font-size:13px">
-        · <b style="color:var(--bad)">版权提示</b>：历年真题及官方解析版权归教育部教育考试院及出版机构。本开放版<b>不包含任何真题内容</b>，内置题库为纯 AI 生成，可安全上传 GitHub 公开分享；<b style="color:var(--bad)">请不要把含真题转录的题库文件上传到公开仓库</b>。<br>
-        · <b style="color:#b45309">质量提示</b>：内置题库的题目与解析均为 AI 生成，仅作演示格式之用，不保证与真实考试同难度同风格。<b>想要高质量的题库，请自己把资料交给 AI 生成并逐题核对</b>——方法见随附 README（把网上下载的 Word/PDF 变成题库的完整工作流 + 现成提示词模板）。<br>
-        · 导入的题库保存在浏览器本地（localStorage，约 5MB 上限，可存多套题库）；导出备份时题库一并导出。</div></div>
+        · <b style="color:var(--bad)">版权边界</b>：本项目包含历年真题的题目、文章与答案（公开流传版本），但<b>不包含任何原版解析书内容</b>——逐题解析、整体解析、参考译文与范文<b>全部为 AI 生成</b>，与官方解析无关。历年真题版权归教育部教育考试院，如权利方提出异议请联系删除。<br>
+        · <b style="color:#b45309">质量提示</b>：AI 解析为简版（词义辨析/定位思路/同义转述说明），<b>不保证与官方解析同等深度</b>。想要高质量深度解析，请看 README 的提示词模板——把任意 Word/PDF 交给 AI 生成专属题库，然后拖入本页面即可使用。<br>
+        · 导入的题库保存在浏览器本地（localStorage，约 5MB 上限）；导出备份时题库一并导出。</div></div>
     </div>`;
 }
 function countOf(y) {
