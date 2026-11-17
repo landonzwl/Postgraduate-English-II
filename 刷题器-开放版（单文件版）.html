@@ -448,27 +448,44 @@ function bankLabel(y) {
   const d = dataOf(y);
   return (d && d.label) || (y + ' 年题库');
 }
+/* ---------- 章节标签（支持自定义，实现多科目通用） ---------- */
+const DEFAULT_SEC_LABELS = { C: '完形填空', R: '阅读理解', PB: '新题型', T: '翻译', W: '写作' };
+function secLabelsOf(y) {
+  const d = dataOf(y) || {};
+  return Object.assign({}, DEFAULT_SEC_LABELS, d.secLabels || {});
+}
+function secName(y, sec, ti) {
+  const sl = secLabelsOf(y);
+  if (sec === 'R') return sl.R === DEFAULT_SEC_LABELS.R ? `阅读理解 Text ${(ti || 0) + 1}` : `${sl.R} ${(ti || 0) + 1}`;
+  return sl[sec] || '';
+}
 function sectionsOf(y) {
   const d = dataOf(y);
   const secs = [{
-    id: 'C', label: '完形填空', tag: 'Section I', count: d.cloze.questions.length,
+    id: 'C', label: secName(y, 'C'), tag: 'Section I', count: d.cloze.questions.length,
     desc: d.cloze.questions.length + ' 题 · 语言知识运用', qList: d.cloze.questions.map(q => ({ ...q, sec: 'C', ti: -1, key: `${y}:C:-1:${q.num}` })),
     material: { type: 'C', directions: d.cloze.directions, passage: d.cloze.passage, blob: d.cloze.analysisBlob },
   }];
-  d.reading.forEach((tx, i) => {
+  (d.reading || []).forEach((tx, i) => {
     secs.push({
-      id: 'R', ti: i, label: `阅读理解 Text ${i + 1}`, tag: 'Part A',
+      id: 'R', ti: i, label: secName(y, 'R', i), tag: 'Part A',
       count: tx.questions.length, desc: (tx.title || '') + ' · ' + tx.questions.length + ' 题',
       qList: tx.questions.map(q => ({ ...q, sec: 'R', ti: i, key: `${y}:R:${i}:${q.num}` })),
       material: { type: 'R', passage: tx.passage, overview: tx.overview, discourse: tx.discourse },
     });
   });
   secs.push({
-    id: 'PB', label: '新题型 Part B', tag: 'Part B', count: d.partB.questions.length,
+    id: 'PB', label: secName(y, 'PB'), tag: 'Part B', count: d.partB.questions.length,
     desc: d.partB.questions.length + ' 题 · ' + ((d.partB.options || []).length ? '选择匹配' : '判断正误'),
     qList: d.partB.questions.map(q => ({ ...q, sec: 'PB', ti: -1, key: `${y}:PB:-1:${q.num}` })),
     material: { type: 'PB', directions: d.partB.directions, options: d.partB.options, passage: d.partB.passage, blob: d.partB.analysisBlob },
   });
+  if (d.translation && d.translation.blocks && d.translation.blocks.length) {
+    secs.push({ id: 'T', label: secName(y, 'T') + ' · 自评', tag: 'Section III', count: 1, desc: '主观题 · 对照参考译文自评', qList: [], material: null });
+  }
+  if (d.writing && d.writing.small && d.writing.small.length) {
+    secs.push({ id: 'W', label: secName(y, 'W') + ' · 自评', tag: 'Section IV', count: 2, desc: '主观题 · 对照参考范文自评', qList: [], material: null });
+  }
   return secs;
 }
 function getQuestion(y, sec, ti, num) {
@@ -545,11 +562,11 @@ function viewHome() {
   }).join('');
   const wrongN = wrongBook.length;
   app.innerHTML = `
-    <div class="hero"><h1>考研英语（二）真题刷题器</h1>
-      <p>2010 – 2026 · 17 套真题 + AI 演示卷 · 解析与译文/范文均为 AI 生成 · 支持拖拽导入自建题库</p></div>
+    <div class="hero"><h1>刷题器 · 通用版</h1>
+      <p>内置英语二 2010-2026 真题（解析为 AI 生成）+ AI 演示卷 · 可导入任意科目自建题库（选择题/判断题/主观题自评）</p></div>
     <div class="dropzone" id="dropzone" onclick="document.getElementById('bankfile').click()">
       <b>将题库 .js / .json 文件拖到这里</b>（或点击选择文件）
-      <div class="sub">想要更高质量的深度解析？看 README 里的提示词模板，让 AI 生成专属题库拖入即可</div>
+      <div class="sub">把你手里的原题材料（PDF/Word/照片文字）连同《题库生成规则.md》一起发给 AI，生成的题库拖到这里即可用</div>
       <input type="file" id="bankfile" accept=".js,.json" style="display:none" onchange="importBank(this.files)">
     </div>
     <div class="grid">
@@ -625,10 +642,10 @@ function materialForMixed(list) {
   return { type: 'R', passage: tx.passage, overview: tx.overview, discourse: tx.discourse };
 }
 
-function materialHTML(m) {
+function materialHTML(m, y) {
   if (!m) return '';
   if (m.type === 'C') {
-    return `<h3>完形填空 · 原文</h3>
+    return `<h3>${esc(secName(y, 'C'))} · 原文</h3>
       ${m.directions && m.directions.length ? `<div class="directions">${esc(m.directions.join(' '))}</div>` : ''}
       <div class="passage">${renderPassage(m.passage)}</div>`;
   }
@@ -641,7 +658,7 @@ function materialHTML(m) {
   }
   if (m.type === 'PB') {
     const opts = (m.options || []).map(o => `<div class="pb-opt"><b>[${o.key}]</b> ${esc(o.text)}</div>`).join('');
-    return `<h3>新题型 · 材料与选项</h3>
+    return `<h3>${esc(secName(y, 'PB'))} · 材料与选项</h3>
       ${m.directions && m.directions.length ? `<div class="directions">${esc(m.directions.join(' '))}</div>` : ''}
       ${opts ? `<div style="margin-bottom:12px">${opts}</div>` : ''}
       <div class="passage">${renderPassage(m.passage)}</div>
@@ -690,11 +707,11 @@ function viewQuiz() {
   app.innerHTML = `
     <div class="topbar">
       <button class="back" onclick="go(${quiz.mixed ? "'wrong'" : `'paper',{y:${y}}`})">← 返回</button>
-      <h2>${quiz.mixed ? '错题重刷' : `${y} · ${sec.label}`}</h2>
+      <h2>${quiz.mixed ? '错题重刷' : `${esc(bankLabel(y))} · ${esc(sec.label)}`}</h2>
       <span class="spacer"></span><span class="meta">第 ${idx + 1} / ${list.length} 题 · 已对 ${quiz.correct} 题</span>
     </div>
     <div class="layout">
-      <div class="panel">${materialHTML(quiz.material)}</div>
+      <div class="panel">${materialHTML(quiz.material, y)}</div>
       <div class="panel qcard">
         <div class="qnum"><span>${q.sec === 'C' ? '完形填空' : q.sec === 'PB' ? '新题型' : '阅读理解'} · 第 ${q.num} 题</span>
           <span>${isTF ? '判断正误' : '单选'}</span></div>
@@ -771,7 +788,7 @@ function viewSummary() {
       <span style="color:var(--bad)">选 ${r.chosen}</span><span style="color:var(--ok)">应 ${r.q.answer}</span></div>`).join('');
   app.innerHTML = `
     <div class="topbar"><button class="back" onclick="go('home')">← 返回首页</button>
-      <h2>${mixed ? '错题重刷' : `${y} · ${sec.label}`} · 练习结果</h2></div>
+      <h2>${mixed ? '错题重刷' : `${esc(bankLabel(y))} · ${esc(sec.label)}`} · 练习结果</h2></div>
     <div class="summary card">
       <h3 style="color:var(--ink2)">${mixed ? '本轮重刷结果' : '本次练习正确率'}</h3>
       <div class="score">${correct} / ${results.length}</div>
@@ -803,7 +820,7 @@ function viewWrong() {
   }
   const rows = items.map((w, i) => `
     <div class="wrong-item" style="cursor:pointer" onclick="redoOne(${i})"><div class="wq">
-      <div class="meta">${w.y} 年 · ${w.sec === 'C' ? '完形' : w.sec === 'PB' ? '新题型' : '阅读 Text ' + ((w.ti || 0) + 1)} · 第 ${w.num} 题</div>
+      <div class="meta">${w.y} · ${esc(secName(w.y, w.sec, w.ti))} · 第 ${w.num} 题</div>
       <div>${esc(w.snippet || '')}…</div></div>
       <button class="btn ghost" onclick="event.stopPropagation();redoOne(${i})">重做</button></div>`).join('');
   app.innerHTML = `
@@ -828,25 +845,35 @@ function viewSelf(y, secId) {
   }
   let body, title;
   if (secId === 'T') {
-    title = '翻译（46 题）· 自评对照';
+    title = secName(y, 'T') + ' · 自评对照';
+    if (!d.translation || !Array.isArray(d.translation.blocks)) {
+      app.innerHTML = `<div class="topbar"><button class="back" onclick="go('paper',{y:${y}})">← 返回</button><h2>${esc(title)}</h2></div>
+        <div class="empty">该题库没有${esc(secName(y, 'T'))}部分。</div>`;
+      return;
+    }
     body = `<div class="panel">
       <h3>题目原文</h3><div class="directions">${esc(d.translation.blocks.slice(0, 2).join(' '))}</div>
       <div class="passage">${renderPassage(d.translation.blocks.slice(2))}</div>
-      ${d.translation.reference ? `<h3 style="margin-top:16px">参考译文</h3>
+      ${d.translation.reference ? `<h3 style="margin-top:16px">参考译文 / 答案对照</h3>
         <div class="ref-block">${renderRich(d.translation.reference)}</div>` : ''}
-      ${d.translation.analysis ? `<details style="margin-top:12px"><summary style="cursor:pointer;font-size:13px;color:var(--brand)">逐句解析</summary>
+      ${d.translation.analysis ? `<details style="margin-top:12px"><summary style="cursor:pointer;font-size:13px;color:var(--brand)">解析 / 答案要点</summary>
         <div class="analysis">${renderRich(d.translation.analysis)}</div></details>` : ''}</div>`;
   } else {
-    title = '写作（47-48 题）· 自评对照';
+    title = secName(y, 'W') + ' · 自评对照';
+    if (!d.writing || !Array.isArray(d.writing.small)) {
+      app.innerHTML = `<div class="topbar"><button class="back" onclick="go('paper',{y:${y}})">← 返回</button><h2>${esc(title)}</h2></div>
+        <div class="empty">该题库没有${esc(secName(y, 'W'))}部分。</div>`;
+      return;
+    }
     const one = (label, blocks, ref) => `
       <div class="panel" style="margin-bottom:16px">
-        <h3>${label}</h3>
+        <h3>${esc(label)}</h3>
         <div class="passage" style="margin-bottom:10px">${renderPassage(blocks)}</div>
-        ${ref ? `<details><summary style="cursor:pointer;font-size:13px;color:var(--brand)">参考范文</summary>
+        ${ref ? `<details><summary style="cursor:pointer;font-size:13px;color:var(--brand)">参考范文 / 答案对照</summary>
           <div class="ref-block">${renderRich(ref)}</div></details>` : '<div class="sub">暂无参考范文</div>'}
       </div>`;
-    body = one('Part A · 小作文（47）', d.writing.small, d.writing.small_ref) +
-           one('Part B · 大作文（48）', d.writing.large, d.writing.large_ref);
+    body = one(`${secName(y, 'W')} Part A`, d.writing.small, d.writing.small_ref) +
+           one(`${secName(y, 'W')} Part B`, d.writing.large, d.writing.large_ref);
   }
   app.innerHTML = `
     <div class="topbar"><button class="back" onclick="go('paper',{y:${y}})">← 返回</button><h2>${y} ${title}</h2></div>
