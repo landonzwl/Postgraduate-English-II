@@ -29,8 +29,9 @@ function bankLabel(y) {
   const d = dataOf(y);
   return (d && d.label) || (y + ' 年题库');
 }
-/* ---------- 章节标签（支持自定义，实现多科目通用） ---------- */
+/* ---------- 章节标签 ---------- */
 const DEFAULT_SEC_LABELS = { C: '完形填空', R: '阅读理解', PB: '新题型', T: '翻译', W: '写作' };
+const V2_TYPE_LABEL = { single: '选择题', multi: '多选题', judge: '判断题', cloze: '选词填空', blank: '填空题', match: '匹配题', order: '排序题', subjective: '主观题' };
 function secLabelsOf(y) {
   const d = dataOf(y) || {};
   return Object.assign({}, DEFAULT_SEC_LABELS, d.secLabels || {});
@@ -38,45 +39,109 @@ function secLabelsOf(y) {
 function secName(y, sec, ti) {
   const sl = secLabelsOf(y);
   if (sec === 'R') return sl.R === DEFAULT_SEC_LABELS.R ? `阅读理解 Text ${(ti || 0) + 1}` : `${sl.R} ${(ti || 0) + 1}`;
-  return sl[sec] || '';
+  if (sl[sec]) return sl[sec];
+  const s = bankSections(y).find(x => x.sec === sec && (x.ti || -1) === (ti || -1));
+  return s ? s.label : (sec || '');
 }
-function sectionsOf(y) {
-  const d = dataOf(y);
-  const secs = [{
-    id: 'C', label: secName(y, 'C'), tag: 'Section I', count: d.cloze.questions.length,
-    desc: d.cloze.questions.length + ' 题 · 语言知识运用', qList: d.cloze.questions.map(q => ({ ...q, sec: 'C', ti: -1, key: `${y}:C:-1:${q.num}` })),
-    material: { type: 'C', directions: d.cloze.directions, passage: d.cloze.passage, blob: d.cloze.analysisBlob },
-  }];
+
+/* ---------- 归一化层：v1（英语二五件套）与 v2（通用 sections）→ 统一内部结构 ----------
+   统一 section：{ sec, ti, kind:'quiz'|'self', label, tag, count, desc, qList, material, selfItems }
+   统一题目：   { num, stem, opts, answer, analysis, _kind: single|multi|judge|match|blank|order }
+   判分规则由 _kind 唯一决定。 */
+const asArr = v => Array.isArray(v) ? v : (v ? [v] : []);
+
+function kindFor(q, type, mat) {
+  if (Array.isArray(q.answer)) return 'blank';
+  const ans = String(q.answer == null ? '' : q.answer);
+  const hasOpts = q.opts && Object.keys(q.opts).length;
+  if (type === 'multi') return 'multi';
+  if (type === 'order') return 'order';
+  if (type === 'blank') return 'blank';
+  if (type === 'match') return 'match';
+  if (type === 'judge') return 'judge';
+  if (hasOpts) return ans.length > 1 ? 'multi' : 'single';
+  if (mat && mat.options && mat.options.length) return 'match';
+  return 'judge';
+}
+function normQ(q, y, sec, ti, kind) {
+  return Object.assign({}, q, { sec, ti, _kind: kind, key: `${y}:${sec}:${ti}:${q.num}` });
+}
+function mkQuizSec(y, sec, ti, label, tag, desc, qs, mat, qtype) {
+  const qList = (qs || []).map(q => normQ(q, y, sec, ti, kindFor(q, qtype, mat)));
+  return { sec, ti, kind: 'quiz', label, tag, count: qList.length, desc, qList, material: mat };
+}
+function normV1(y, d) {
+  const secs = [mkQuizSec(y, 'C', -1, secName(y, 'C'), 'Section I',
+    d.cloze.questions.length + ' 题 · 语言知识运用', d.cloze.questions,
+    { directions: asArr(d.cloze.directions), passage: asArr(d.cloze.passage), blob: d.cloze.analysisBlob || '' }, 'cloze')];
   (d.reading || []).forEach((tx, i) => {
-    secs.push({
-      id: 'R', ti: i, label: secName(y, 'R', i), tag: 'Part A',
-      count: tx.questions.length, desc: (tx.title || '') + ' · ' + tx.questions.length + ' 题',
-      qList: tx.questions.map(q => ({ ...q, sec: 'R', ti: i, key: `${y}:R:${i}:${q.num}` })),
-      material: { type: 'R', passage: tx.passage, overview: tx.overview, discourse: tx.discourse },
-    });
+    secs.push(mkQuizSec(y, 'R', i, secName(y, 'R', i), 'Part A',
+      (tx.title || '') + ' · ' + tx.questions.length + ' 题', tx.questions,
+      { passage: asArr(tx.passage), overview: tx.overview || '', discourse: tx.discourse || '' }, 'single'));
   });
-  secs.push({
-    id: 'PB', label: secName(y, 'PB'), tag: 'Part B', count: d.partB.questions.length,
-    desc: d.partB.questions.length + ' 题 · ' + ((d.partB.options || []).length ? '选择匹配' : '判断正误'),
-    qList: d.partB.questions.map(q => ({ ...q, sec: 'PB', ti: -1, key: `${y}:PB:-1:${q.num}` })),
-    material: { type: 'PB', directions: d.partB.directions, options: d.partB.options, passage: d.partB.passage, blob: d.partB.analysisBlob },
-  });
-  if (d.translation && d.translation.blocks && d.translation.blocks.length) {
-    secs.push({ id: 'T', label: secName(y, 'T') + ' · 自评', tag: 'Section III', count: 1, desc: '主观题 · 对照参考译文自评', qList: [], material: null });
+  secs.push(mkQuizSec(y, 'PB', -1, secName(y, 'PB'), 'Part B',
+    d.partB.questions.length + ' 题 · ' + ((d.partB.options || []).length ? '选择匹配' : '判断正误'),
+    d.partB.questions,
+    { directions: asArr(d.partB.directions), options: asArr(d.partB.options), passage: asArr(d.partB.passage), blob: d.partB.analysisBlob || '' }));
+  if (d.translation && Array.isArray(d.translation.blocks) && d.translation.blocks.length) {
+    secs.push({ sec: 'T', ti: -1, kind: 'self', label: secName(y, 'T') + ' · 自评', tag: 'Section III', count: 1,
+      desc: '主观题 · 对照参考答案自评', qList: [],
+      selfItems: [{ title: secName(y, 'T') + ' · 题目', directions: d.translation.blocks.slice(0, 2), body: d.translation.blocks.slice(2),
+        reference: d.translation.reference || '', analysis: d.translation.analysis || '' }] });
   }
-  if (d.writing && d.writing.small && d.writing.small.length) {
-    secs.push({ id: 'W', label: secName(y, 'W') + ' · 自评', tag: 'Section IV', count: 2, desc: '主观题 · 对照参考范文自评', qList: [], material: null });
+  if (d.writing && Array.isArray(d.writing.small) && d.writing.small.length) {
+    secs.push({ sec: 'W', ti: -1, kind: 'self', label: secName(y, 'W') + ' · 自评', tag: 'Section IV', count: 2,
+      desc: '主观题 · 对照参考范文自评', qList: [],
+      selfItems: [
+        { title: secName(y, 'W') + ' Part A', body: asArr(d.writing.small), reference: d.writing.small_ref || '', analysis: '' },
+        { title: secName(y, 'W') + ' Part B', body: asArr(d.writing.large), reference: d.writing.large_ref || '', analysis: '' }] });
   }
   return secs;
 }
+function normV2(y, d) {
+  return (d.sections || []).map((s, i) => {
+    const t = s.type || '';
+    const label = s.title || (V2_TYPE_LABEL[t] || '题目');
+    const mat = {
+      directions: asArr(s.directions),
+      passage: asArr(s.material != null ? s.material : s.passage),
+      options: asArr(s.options),
+      overview: s.overview || '',
+      discourse: s.discourse || '',
+      blob: s.analysisBlob || s.blob || '',
+    };
+    if (t === 'subjective') {
+      const items = (Array.isArray(s.questions) ? s.questions : []).map(q => ({
+        title: (q.num ? q.num + '. ' : '') + String(q.stem || '主观题').replace(/^\d+[.、．]\s*/, ''),
+        directions: asArr(q.directions),
+        body: asArr(q.material != null ? q.material : q.body),
+        reference: q.reference || (typeof q.answer === 'string' ? q.answer : '') || s.reference || '',
+        analysis: q.analysis || s.analysis || '',
+      }));
+      if (!items.length) items.push({ title: label, directions: mat.directions, body: mat.passage, reference: s.reference || '', analysis: s.analysis || '' });
+      return { sec: 'S' + i, ti: -1, kind: 'self', label, tag: '主观题', count: items.length, desc: '主观题 · 对照参考答案自评', qList: [], selfItems: items };
+    }
+    const first = (s.questions || [])[0] || {};
+    return mkQuizSec(y, 'S' + i, -1, label, V2_TYPE_LABEL[t] || '题目',
+      (s.questions || []).length + ' 题 · ' + (V2_TYPE_LABEL[kindFor(first, t, mat)] || '客观题'),
+      s.questions || [], mat, t);
+  });
+}
+function bankSections(y) {
+  const d = dataOf(y);
+  if (!d) return [];
+  try {
+    return Array.isArray(d.sections) ? normV2(y, d) : normV1(y, d);
+  } catch (e) { return []; }
+}
+function findSection(y, sec, ti) {
+  return bankSections(y).find(s => s.sec === sec && (s.ti || -1) === (ti || -1)) || null;
+}
 function getQuestion(y, sec, ti, num) {
   try {
-    const d = dataOf(y);
-    if (!d) return undefined;
-    if (sec === 'C') return (d.cloze.questions || []).find(q => q.num === num);
-    if (sec === 'PB') return (d.partB.questions || []).find(q => q.num === num);
-    const tx = (d.reading || [])[ti];
-    return tx ? tx.questions.find(q => q.num === num) : undefined;
+    const s = findSection(y, sec, ti);
+    if (!s) return undefined;
+    return s.qList.find(q => q.num === num);
   } catch (e) { return undefined; }
 }
 
@@ -168,18 +233,16 @@ function viewHome() {
     </div>`;
 }
 function countOf(y) {
-  const d = dataOf(y);
-  return (d.cloze.questions.length || 0) + (d.reading || []).reduce((s, t) => s + (t.questions || []).length, 0) + ((d.partB && d.partB.questions) || []).length;
+  return bankSections(y).reduce((n, s) => n + (s.kind === 'quiz' ? s.qList.length : (s.selfItems || []).length), 0);
 }
 
 function viewPaper(y) {
-  const secs = sectionsOf(y);
+  const secs = bankSections(y);
   const rows = secs.map((s, i) => `
-    <div class="sec-row" onclick="${s.id === 'C' || s.id === 'R' || s.id === 'PB'
-      ? `startQuiz(${y},${i})` : `go('self',{y:${y},sec:'${s.id === 'T' ? 'T' : 'W'}'})`}">
-      <span class="tag${s.id === 'T' || s.id === 'W' ? ' self' : ''}">${s.tag}</span>
-      <div style="flex:1"><h3>${s.label}</h3><div class="sub">${s.desc}</div></div>
-      <span class="sub">${s.id === 'T' || s.id === 'W' ? '自评对照 →' : '开始 →'}</span>
+    <div class="sec-row" onclick="${s.kind === 'quiz' ? `startQuiz(${y},${i})` : `go('self',{y:${y},sec:'${s.sec}'})`}">
+      <span class="tag${s.kind === 'self' ? ' self' : ''}">${esc(s.tag)}</span>
+      <div style="flex:1"><h3>${esc(s.label)}</h3><div class="sub">${esc(s.desc)}</div></div>
+      <span class="sub">${s.kind === 'self' ? '自评对照 →' : '开始 →'}</span>
     </div>`).join('');
   app.innerHTML = `
     <div class="topbar"><button class="back" onclick="go('home')">← 返回</button>
@@ -189,7 +252,7 @@ function viewPaper(y) {
 
 /* ---------- 练习 ---------- */
 function startQuiz(y, secIdx) {
-  const secs = sectionsOf(y);
+  const secs = bankSections(y);
   const s = secs[secIdx];
   quiz = {
     y, secIdx, sec: s, list: s.qList.slice(), idx: 0,
@@ -206,85 +269,80 @@ function startWrongQuiz(entries) {
   }).filter(Boolean);
   if (!list.length) { alert('这批错题对应的题库数据已不存在（题库可能已删除），无法重做'); return; }
   const y = list[0].year;
+  const sec0 = findSection(y, list[0].sec, list[0].ti) || {};
   quiz = {
     y, secIdx: -1, sec: { id: 'W', label: '错题重刷' },
     list, idx: 0, chosen: null, judged: false, correct: 0, results: [], mixed: true,
-    material: materialForMixed(list),
+    matLabel: sec0.label || '材料',
+    material: sec0.material || { passage: [] },
   };
   route = { view: 'quiz' };
   render();
 }
 function materialForMixed(list) {
-  const d = dataOf(list[0].year) || QUIZ_DATA[list[0].year] || {};
   const first = list[0];
-  if (first.sec === 'C') return { type: 'C', directions: (d.cloze || {}).directions, passage: (d.cloze || {}).passage, blob: (d.cloze || {}).analysisBlob };
-  if (first.sec === 'PB') return { type: 'PB', directions: (d.partB || {}).directions, options: (d.partB || {}).options, passage: (d.partB || {}).passage, blob: (d.partB || {}).analysisBlob };
-  const tx = (d.reading || [])[first.ti] || {};
-  return { type: 'R', passage: tx.passage, overview: tx.overview, discourse: tx.discourse };
+  const s = findSection(first.year, first.sec, first.ti);
+  return s ? s.material : { passage: [] };
 }
 
-function materialHTML(m, y) {
+function materialHTML(m, header) {
   if (!m) return '';
-  if (m.type === 'C') {
-    return `<h3>${esc(secName(y, 'C'))} · 原文</h3>
-      ${m.directions && m.directions.length ? `<div class="directions">${esc(m.directions.join(' '))}</div>` : ''}
-      <div class="passage">${renderPassage(m.passage)}</div>`;
-  }
-  if (m.type === 'R') {
-    return `<h3>文章原文</h3><div class="passage">${renderPassage(m.passage)}</div>
-      ${m.overview ? `<details style="margin-top:12px"><summary style="cursor:pointer;font-size:13px;color:var(--brand)">文章总体分析</summary>
-        <div class="analysis">${renderRich(m.overview)}</div></details>` : ''}
-      ${m.discourse ? `<details style="margin-top:8px"><summary style="cursor:pointer;font-size:13px;color:var(--brand)">语篇分析（逐段对照翻译）</summary>
-        <div class="analysis">${renderRich(m.discourse)}</div></details>` : ''}`;
-  }
-  if (m.type === 'PB') {
-    const opts = (m.options || []).map(o => `<div class="pb-opt"><b>[${o.key}]</b> ${esc(o.text)}</div>`).join('');
-    return `<h3>${esc(secName(y, 'PB'))} · 材料与选项</h3>
-      ${m.directions && m.directions.length ? `<div class="directions">${esc(m.directions.join(' '))}</div>` : ''}
-      ${opts ? `<div style="margin-bottom:12px">${opts}</div>` : ''}
-      <div class="passage">${renderPassage(m.passage)}</div>
-      ${m.blob ? `<details style="margin-top:12px"><summary style="cursor:pointer;font-size:13px;color:var(--brand)">本部分整体解析</summary>
-        <div class="analysis">${renderRich(m.blob)}</div></details>` : ''}`;
-  }
-  return '';
+  const det = (t, c) => c ? `<details style="margin-top:12px"><summary style="cursor:pointer;font-size:13px;color:var(--brand)">${t}</summary>
+    <div class="analysis">${renderRich(c)}</div></details>` : '';
+  let body = '';
+  if (m.directions && m.directions.length) body += `<div class="directions">${esc(m.directions.join(' '))}</div>`;
+  if (m.options && m.options.length) body += `<div style="margin-bottom:12px">${m.options.map(o => `<div class="pb-opt"><b>[${o.key}]</b> ${esc(o.text)}</div>`).join('')}</div>`;
+  if (m.passage && m.passage.length) body += `<div class="passage">${renderPassage(m.passage)}</div>`;
+  return `<h3>${esc(header)}</h3>${body}${det('文章总体分析', m.overview)}${det('语篇分析（逐段对照翻译）', m.discourse)}${det('本部分整体解析', m.blob)}`;
 }
 
 function viewQuiz() {
   const { y, sec, list, idx } = quiz;
   const q = list[idx];
-  let opts, optLabel, isTF;
-  if (q.opts && Object.keys(q.opts).length) {
-    opts = Object.keys(q.opts); optLabel = k => q.opts[k]; isTF = false;
-  } else if (q.sec === 'PB' && quiz.material.options && quiz.material.options.length) {
-    const omap = {}; quiz.material.options.forEach(o => { omap[o.key] = o.text; });
-    opts = quiz.material.options.map(o => o.key); optLabel = k => omap[k]; isTF = false;
-  } else {
-    opts = ['T', 'F']; optLabel = k => (k === 'T' ? '正确（True）' : '错误（False）'); isTF = true;
+  const kind = q._kind || 'single';
+  const KIND_LABEL = { single: '单选', multi: '多选（选出全部正确项）', order: '排序（按顺序点击选项）',
+    judge: '判断正误', match: '从上方选项中选择', blank: '填空（多个可接受答案任填其一）' };
+
+  let opts = [], optLabel = () => '', blankMode = kind === 'blank';
+  if (!blankMode) {
+    if (q.opts && Object.keys(q.opts).length) {
+      opts = Object.keys(q.opts); optLabel = k => q.opts[k];
+    } else if (quiz.material.options && quiz.material.options.length) {
+      const omap = {}; quiz.material.options.forEach(o => { omap[o.key] = o.text; });
+      opts = quiz.material.options.map(o => o.key); optLabel = k => omap[k];
+    } else {
+      opts = ['T', 'F']; optLabel = k => (k === 'T' ? '正确（True）' : '错误（False）');
+    }
   }
 
+  const chosenArr = Array.isArray(quiz.chosen) ? quiz.chosen : null;
+  const inChosen = k => chosenArr ? chosenArr.includes(k) : quiz.chosen === k;
+  const ansSet = kind === 'multi' ? new Set(String(q.answer).split('')) : null;
   let optsHtml = opts.map(k => {
     let cls = 'opt';
     if (quiz.judged) {
-      if (k === q.answer) cls += ' right';
-      else if (k === quiz.chosen) cls += ' wrong';
-    } else if (k === quiz.chosen) cls += ' chosen';
+      if (ansSet ? ansSet.has(k) : k === q.answer) cls += ' right';
+      else if (inChosen(k)) cls += ' wrong';
+    } else if (inChosen(k)) cls += ' chosen';
     return `<button class="${cls}" ${quiz.judged ? 'disabled' : ''} onclick="choose('${k}')">
       <span class="key">${k}.</span> <span>${esc(optLabel(k))}</span></button>`;
   }).join('');
 
   let verdict = '', anaHtml = '';
   if (quiz.judged) {
-    const okFlag = quiz.chosen === q.answer;
-    verdict = `<div class="verdict ${okFlag ? 'ok' : 'bad'}">${okFlag ? '✓ 回答正确' : `✗ 回答错误 · 正确答案 ${q.answer}`}</div>`;
-    const blob = q.sec === 'C' ? quiz.material.blob : (q.sec === 'PB' ? quiz.material.blob : '');
+    const okFlag = quiz.lastOk;
+    const dispAns = kind === 'blank' ? (Array.isArray(q.answer) ? q.answer.join(' / ') : q.answer) : q.answer;
+    verdict = `<div class="verdict ${okFlag ? 'ok' : 'bad'}">${okFlag ? '✓ 回答正确' : `✗ 回答错误 · 正确答案 ${esc(String(dispAns))}`}</div>`;
+    const blob = quiz.material.blob || '';
     anaHtml = `
       <div class="analysis">${q.analysis ? renderRich(q.analysis)
         : (blob ? '<p style="color:var(--ink2)">该题无逐题解析，请展开下方"本部分整体解析"。</p>' : '<p style="color:var(--ink2)">暂无解析。</p>')}
-        ${blob && q.sec !== 'PB' ? `<details class="ana-toggle"><summary style="cursor:pointer;color:var(--brand)">本部分整体解析</summary>
+        ${blob ? `<details class="ana-toggle"><summary style="cursor:pointer;color:var(--brand)">本部分整体解析</summary>
           <div class="analysis">${renderRich(blob)}</div></details>` : ''}
       </div>`;
   }
 
+  const secHeader = quiz.mixed ? (quiz.matLabel || '材料') : sec.label;
   app.innerHTML = `
     <div class="topbar">
       <button class="back" onclick="go(${quiz.mixed ? "'wrong'" : `'paper',{y:${y}}`})">← 返回</button>
@@ -292,18 +350,20 @@ function viewQuiz() {
       <span class="spacer"></span><span class="meta">第 ${idx + 1} / ${list.length} 题 · 已对 ${quiz.correct} 题</span>
     </div>
     <div class="layout">
-      <div class="panel">${materialHTML(quiz.material, y)}</div>
+      <div class="panel">${materialHTML(quiz.material, secHeader)}</div>
       <div class="panel qcard">
-        <div class="qnum"><span>${q.sec === 'C' ? '完形填空' : q.sec === 'PB' ? '新题型' : '阅读理解'} · 第 ${q.num} 题</span>
-          <span>${isTF ? '判断正误' : '单选'}</span></div>
-        <div class="qstem">${esc(q.stem || (isTF ? '判断以上说法的正误。' : ''))}</div>
-        <div class="opts">${optsHtml}</div>
+        <div class="qnum"><span>${esc(secName(y, q.sec, q.ti) || sec.label)} · 第 ${q.num} 题</span>
+          <span>${KIND_LABEL[kind] || '单选'}</span></div>
+        <div class="qstem">${esc(q.stem || (kind === 'judge' ? '判断以上说法的正误。' : ''))}</div>
+        ${blankMode ? `<input id="blankin" class="blank-input" type="text" ${quiz.judged ? 'disabled' : ''}
+          value="${esc(String(quiz.chosen == null ? '' : quiz.chosen))}" oninput="blankType(this.value)" placeholder="在此输入答案">` : ''}
+        ${optsHtml ? `<div class="opts">${optsHtml}</div>` : ''}
         ${verdict}
         ${anaHtml}
         <div class="actions">
           ${quiz.judged
             ? `<button class="btn primary" onclick="nextQ()">${idx + 1 < list.length ? '下一题 →' : '查看结果 →'}</button>`
-            : `<button class="btn primary" onclick="judge()" ${quiz.chosen ? '' : 'disabled'}>确认答案</button>
+            : `<button class="btn primary" onclick="judge()" ${(!blankMode && (!quiz.chosen || (Array.isArray(quiz.chosen) && !quiz.chosen.length))) ? 'disabled' : ''}>确认答案</button>
                <button class="btn ghost" onclick="reveal()">直接看答案</button>`}
         </div>
       </div>
@@ -312,16 +372,50 @@ function viewQuiz() {
 
 function choose(k) {
   if (!quiz || quiz.judged) return;
-  quiz.chosen = k;
+  const q = quiz.list[quiz.idx];
+  const kind = q._kind || 'single';
+  if (kind === 'multi' || kind === 'order') {
+    const arr = Array.isArray(quiz.chosen) ? quiz.chosen.slice() : [];
+    const i = arr.indexOf(k);
+    if (i >= 0) arr.splice(i, 1); else arr.push(k);
+    quiz.chosen = arr;
+  } else {
+    quiz.chosen = k;
+  }
   render();
 }
+function blankType(v) {
+  if (quiz && !quiz.judged) quiz.chosen = v;
+}
+function scoreOne(q, chosen) {
+  const kind = q._kind || 'single';
+  if (kind === 'multi') {
+    const c = [...new Set(chosen)].sort().join('');
+    return { ok: c === [...new Set(String(q.answer).split(''))].sort().join(''), disp: c || '（未选）' };
+  }
+  if (kind === 'order') {
+    const c = chosen.join('');
+    return { ok: c === String(q.answer), disp: c || '（未排）' };
+  }
+  if (kind === 'blank') {
+    const norm = s => String(s == null ? '' : s).trim().toLowerCase().replace(/\s+/g, ' ');
+    const acc = (Array.isArray(q.answer) ? q.answer : [q.answer]).map(norm);
+    const c = norm(chosen);
+    return { ok: acc.includes(c) && c !== '', disp: c || '（未填）' };
+  }
+  return { ok: chosen === q.answer, disp: chosen };
+}
 function judge() {
-  if (!quiz.chosen || quiz.judged) return;
-  quiz.judged = true;
+  if (!quiz || quiz.judged) return;
   const q = quiz.list[quiz.idx];
-  const okFlag = quiz.chosen === q.answer;
+  const kind = q._kind || 'single';
+  if (kind === 'blank' && !String(quiz.chosen == null ? '' : quiz.chosen).trim()) { alert('请先输入答案'); return; }
+  if (!quiz.chosen || (Array.isArray(quiz.chosen) && !quiz.chosen.length)) return;
+  quiz.judged = true;
+  const { ok: okFlag, disp } = scoreOne(q, quiz.chosen);
+  quiz.lastOk = okFlag;
   if (okFlag) quiz.correct++;
-  quiz.results.push({ q, chosen: quiz.chosen, ok: okFlag });
+  quiz.results.push({ q, chosen: disp, ok: okFlag });
   if (!okFlag) {
     wrongBook = wrongBook.filter(w => !(w.y === (q.year || quiz.y) && w.sec === q.sec && w.ti === q.ti && w.num === q.num));
     wrongBook.push({ y: q.year || quiz.y, sec: q.sec, ti: q.ti, num: q.num,
@@ -331,7 +425,11 @@ function judge() {
   render();
 }
 function reveal() {
-  quiz.chosen = quiz.list[quiz.idx].answer;
+  const q = quiz.list[quiz.idx];
+  const kind = q._kind || 'single';
+  if (kind === 'multi' || kind === 'order') quiz.chosen = String(q.answer).split('');
+  else if (kind === 'blank') quiz.chosen = Array.isArray(q.answer) ? q.answer[0] : q.answer;
+  else quiz.chosen = q.answer;
   judge();
 }
 function nextQ() {
@@ -416,48 +514,32 @@ function redoAll() {
   startWrongQuiz(wrongBook.slice());
 }
 
-/* ---------- 自评（翻译/写作） ---------- */
+/* ---------- 自评（主观题通用） ---------- */
 function viewSelf(y, secId) {
-  const d = dataOf(y);
-  if (!d) {
+  if (!dataOf(y)) {
     app.innerHTML = `<div class="topbar"><button class="back" onclick="go('home')">← 返回</button><h2>自评</h2></div>
       <div class="empty">该题库数据缺失，无法打开自评页。</div>`;
     return;
   }
-  let body, title;
-  if (secId === 'T') {
-    title = secName(y, 'T') + ' · 自评对照';
-    if (!d.translation || !Array.isArray(d.translation.blocks)) {
-      app.innerHTML = `<div class="topbar"><button class="back" onclick="go('paper',{y:${y}})">← 返回</button><h2>${esc(title)}</h2></div>
-        <div class="empty">该题库没有${esc(secName(y, 'T'))}部分。</div>`;
-      return;
-    }
-    body = `<div class="panel">
-      <h3>题目原文</h3><div class="directions">${esc(d.translation.blocks.slice(0, 2).join(' '))}</div>
-      <div class="passage">${renderPassage(d.translation.blocks.slice(2))}</div>
-      ${d.translation.reference ? `<h3 style="margin-top:16px">参考译文 / 答案对照</h3>
-        <div class="ref-block">${renderRich(d.translation.reference)}</div>` : ''}
-      ${d.translation.analysis ? `<details style="margin-top:12px"><summary style="cursor:pointer;font-size:13px;color:var(--brand)">解析 / 答案要点</summary>
-        <div class="analysis">${renderRich(d.translation.analysis)}</div></details>` : ''}</div>`;
-  } else {
-    title = secName(y, 'W') + ' · 自评对照';
-    if (!d.writing || !Array.isArray(d.writing.small)) {
-      app.innerHTML = `<div class="topbar"><button class="back" onclick="go('paper',{y:${y}})">← 返回</button><h2>${esc(title)}</h2></div>
-        <div class="empty">该题库没有${esc(secName(y, 'W'))}部分。</div>`;
-      return;
-    }
-    const one = (label, blocks, ref) => `
-      <div class="panel" style="margin-bottom:16px">
-        <h3>${esc(label)}</h3>
-        <div class="passage" style="margin-bottom:10px">${renderPassage(blocks)}</div>
-        ${ref ? `<details><summary style="cursor:pointer;font-size:13px;color:var(--brand)">参考范文 / 答案对照</summary>
-          <div class="ref-block">${renderRich(ref)}</div></details>` : '<div class="sub">暂无参考范文</div>'}
-      </div>`;
-    body = one(`${secName(y, 'W')} Part A`, d.writing.small, d.writing.small_ref) +
-           one(`${secName(y, 'W')} Part B`, d.writing.large, d.writing.large_ref);
+  const s = bankSections(y).find(x => x.sec === secId && x.kind === 'self');
+  const title = (s ? s.label.replace(/ · 自评$/, '') : (secName(y, secId) || '自评')) + ' · 自评对照';
+  if (!s || !(s.selfItems || []).length) {
+    app.innerHTML = `<div class="topbar"><button class="back" onclick="go('paper',{y:${y}})">← 返回</button><h2>${esc(title)}</h2></div>
+      <div class="empty">该题库没有此自评部分。</div>`;
+    return;
   }
+  const body = s.selfItems.map(it => `
+    <div class="panel" style="margin-bottom:16px">
+      <h3>${esc(it.title)}</h3>
+      ${it.directions && it.directions.length ? `<div class="directions">${esc(it.directions.join(' '))}</div>` : ''}
+      <div class="passage" style="margin-bottom:10px">${renderPassage(it.body)}</div>
+      ${it.reference ? `<details open><summary style="cursor:pointer;font-size:13px;color:var(--brand)">参考答案 / 答案对照</summary>
+        <div class="ref-block">${renderRich(it.reference)}</div></details>` : '<div class="sub">暂无参考答案</div>'}
+      ${it.analysis ? `<details style="margin-top:8px"><summary style="cursor:pointer;font-size:13px;color:var(--brand)">解析 / 答案要点</summary>
+        <div class="analysis">${renderRich(it.analysis)}</div></details>` : ''}
+    </div>`).join('');
   app.innerHTML = `
-    <div class="topbar"><button class="back" onclick="go('paper',{y:${y}})">← 返回</button><h2>${y} ${title}</h2></div>
+    <div class="topbar"><button class="back" onclick="go('paper',{y:${y}})">← 返回</button><h2>${y} ${esc(title)}</h2></div>
     ${body}`;
 }
 
@@ -496,6 +578,12 @@ function importRecords(input) {
 /* ---------- 自建题库导入（拖拽 / 选择文件） ---------- */
 function validateBank(p) {
   if (!p || typeof p !== 'object') return null;
+  // v2 通用形态：sections 数组，至少一节含题目或主观题
+  if (Array.isArray(p.sections)) {
+    const ok = p.sections.some(s => s && ((Array.isArray(s.questions) && s.questions.length) || s.type === 'subjective'));
+    return ok ? p : null;
+  }
+  // v1 形态：英语二五件套
   if (!p.cloze || !Array.isArray(p.cloze.questions) || !Array.isArray(p.reading) || !p.partB || !Array.isArray(p.partB.questions)) return null;
   const n = p.cloze.questions.length + p.reading.reduce((s, t) => s + ((t && t.questions) || []).length, 0) + p.partB.questions.length;
   if (n < 1) return null;

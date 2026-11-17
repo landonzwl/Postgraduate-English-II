@@ -160,3 +160,12 @@ a { color: var(--brand); text-decoration: none; }
 }
 .dropzone .sub { color: var(--ink2); font-size: 12.5px; margin-top: 6px; }
 .dropzone:hover, .dropzone.dragging { background: #dbeafe; border-color: #1d4ed8; transform: scale(1.01); }
+
+/* 填空题输入框 */
+.blank-input {
+  width: 100%; max-width: 420px; padding: 10px 12px; font-size: 15px;
+  font-family: inherit; border: 1.5px solid var(--line); border-radius: 8px;
+  margin: 4px 0 10px; background: var(--card); color: var(--ink);
+}
+.blank-input:focus { outline: none; border-color: var(--brand); }
+.blank-input:disabled { background: var(--bg); color: var(--ink2); }
