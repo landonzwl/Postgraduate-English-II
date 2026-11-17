@@ -130,7 +130,7 @@ function viewHome() {
       <p>2010 – 2026 · 17 套真题 + AI 演示卷 · 解析与译文/范文均为 AI 生成 · 支持拖拽导入自建题库</p></div>
     <div class="dropzone" id="dropzone" onclick="document.getElementById('bankfile').click()">
       <b>将题库 .js / .json 文件拖到这里</b>（或点击选择文件）
-      <div class="sub">想要更高质量的深度解析？看 README 里的提示词模板，让 AI 生成专属题库拖入即可</div>
+      <div class="sub">把你手里的原题材料（PDF/Word/照片文字）连同《题库生成规则.md》一起发给 AI，生成的题库拖到这里即可用</div>
       <input type="file" id="bankfile" accept=".js,.json" style="display:none" onchange="importBank(this.files)">
     </div>
     <div class="grid">
