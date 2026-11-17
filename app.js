@@ -204,7 +204,6 @@ function renderMath(root) {
         { left: '$$', right: '$$', display: true },
         { left: '\\[', right: '\\]', display: true },
         { left: '\\(', right: '\\)', display: false },
-        { left: '$', right: '$', display: false },
       ],
       throwOnError: false,
       ignoredTags: ['script', 'noscript', 'style', 'textarea', 'pre', 'code', 'option'],
@@ -312,7 +311,7 @@ function materialHTML(m, header) {
   const det = (t, c) => c ? `<details style="margin-top:12px"><summary style="cursor:pointer;font-size:13px;color:var(--brand)">${t}</summary>
     <div class="analysis">${renderRich(c)}</div></details>` : '';
   let body = '';
-  if (m.directions && m.directions.length) body += `<div class="directions">${esc(m.directions.join(' '))}</div>`;
+  if (m.directions && m.directions.length) body += `<div class="directions">${renderRich(m.directions.join(' '))}</div>`;
   if (m.options && m.options.length) body += `<div style="margin-bottom:12px">${m.options.map(o => `<div class="pb-opt"><b>[${o.key}]</b> ${esc(o.text)}</div>`).join('')}</div>`;
   if (m.passage && m.passage.length) body += `<div class="passage">${renderPassage(m.passage)}</div>`;
   return `<h3>${esc(header)}</h3>${body}${det('文章总体分析', m.overview)}${det('语篇分析（逐段对照翻译）', m.discourse)}${det('本部分整体解析', m.blob)}`;
@@ -553,7 +552,7 @@ function viewSelf(y, secId) {
   const body = s.selfItems.map(it => `
     <div class="panel" style="margin-bottom:16px">
       <h3>${esc(it.title)}</h3>
-      ${it.directions && it.directions.length ? `<div class="directions">${esc(it.directions.join(' '))}</div>` : ''}
+      ${it.directions && it.directions.length ? `<div class="directions">${renderRich(it.directions.join(' '))}</div>` : ''}
       <div class="passage" style="margin-bottom:10px">${renderPassage(it.body)}</div>
       ${it.reference ? `<details open><summary style="cursor:pointer;font-size:13px;color:var(--brand)">参考答案 / 答案对照</summary>
         <div class="ref-block">${renderRich(it.reference)}</div></details>` : '<div class="sub">暂无参考答案</div>'}
