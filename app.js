@@ -53,10 +53,14 @@ function sectionsOf(y) {
   return secs;
 }
 function getQuestion(y, sec, ti, num) {
-  const d = dataOf(y);
-  if (sec === 'C') return d.cloze.questions.find(q => q.num === num);
-  if (sec === 'PB') return d.partB.questions.find(q => q.num === num);
-  return d.reading[ti].questions.find(q => q.num === num);
+  try {
+    const d = dataOf(y);
+    if (!d) return undefined;
+    if (sec === 'C') return (d.cloze.questions || []).find(q => q.num === num);
+    if (sec === 'PB') return (d.partB.questions || []).find(q => q.num === num);
+    const tx = (d.reading || [])[ti];
+    return tx ? tx.questions.find(q => q.num === num) : undefined;
+  } catch (e) { return undefined; }
 }
 
 /* ---------- 工具 ---------- */
@@ -183,7 +187,7 @@ function startWrongQuiz(entries) {
     if (!q) return null;
     return { ...q, sec: e.sec, ti: e.ti, key: `${e.y}:${e.sec}:${e.ti}:${e.num}`, year: e.y };
   }).filter(Boolean);
-  if (!list.length) { alert('错题已被清空'); return; }
+  if (!list.length) { alert('这批错题对应的题库数据已不存在（题库可能已删除），无法重做'); return; }
   const y = list[0].year;
   quiz = {
     y, secIdx: -1, sec: { id: 'W', label: '错题重刷' },
@@ -194,11 +198,11 @@ function startWrongQuiz(entries) {
   render();
 }
 function materialForMixed(list) {
-  const d = QUIZ_DATA[list[0].year];
+  const d = dataOf(list[0].year) || QUIZ_DATA[list[0].year] || {};
   const first = list[0];
-  if (first.sec === 'C') return { type: 'C', directions: d.cloze.directions, passage: d.cloze.passage, blob: d.cloze.analysisBlob };
-  if (first.sec === 'PB') return { type: 'PB', directions: d.partB.directions, options: d.partB.options, passage: d.partB.passage, blob: d.partB.analysisBlob };
-  const tx = d.reading[first.ti];
+  if (first.sec === 'C') return { type: 'C', directions: (d.cloze || {}).directions, passage: (d.cloze || {}).passage, blob: (d.cloze || {}).analysisBlob };
+  if (first.sec === 'PB') return { type: 'PB', directions: (d.partB || {}).directions, options: (d.partB || {}).options, passage: (d.partB || {}).passage, blob: (d.partB || {}).analysisBlob };
+  const tx = (d.reading || [])[first.ti] || {};
   return { type: 'R', passage: tx.passage, overview: tx.overview, discourse: tx.discourse };
 }
 
@@ -379,10 +383,10 @@ function viewWrong() {
     return;
   }
   const rows = items.map((w, i) => `
-    <div class="wrong-item"><div class="wq">
+    <div class="wrong-item" style="cursor:pointer" onclick="redoOne(${i})"><div class="wq">
       <div class="meta">${w.y} 年 · ${w.sec === 'C' ? '完形' : w.sec === 'PB' ? '新题型' : '阅读 Text ' + ((w.ti || 0) + 1)} · 第 ${w.num} 题</div>
       <div>${esc(w.snippet || '')}…</div></div>
-      <button class="btn ghost" onclick="redoOne(${i})">重做</button></div>`).join('');
+      <button class="btn ghost" onclick="event.stopPropagation();redoOne(${i})">重做</button></div>`).join('');
   app.innerHTML = `
     <div class="topbar"><button class="back" onclick="go('home')">← 返回</button><h2>错题本（${items.length}）</h2>
       <span class="spacer"></span><button class="btn primary" onclick="redoAll()">全部重刷</button></div>
@@ -397,7 +401,12 @@ function redoAll() {
 
 /* ---------- 自评（翻译/写作） ---------- */
 function viewSelf(y, secId) {
-  const d = QUIZ_DATA[y];
+  const d = dataOf(y);
+  if (!d) {
+    app.innerHTML = `<div class="topbar"><button class="back" onclick="go('home')">← 返回</button><h2>自评</h2></div>
+      <div class="empty">该题库数据缺失，无法打开自评页。</div>`;
+    return;
+  }
   let body, title;
   if (secId === 'T') {
     title = '翻译（46 题）· 自评对照';
