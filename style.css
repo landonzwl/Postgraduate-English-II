@@ -169,3 +169,7 @@ a { color: var(--brand); text-decoration: none; }
 }
 .blank-input:focus { outline: none; border-color: var(--brand); }
 .blank-input:disabled { background: var(--bg); color: var(--ink2); }
+
+/* KaTeX 公式（数学等科目） */
+.katex-display { overflow-x: auto; overflow-y: hidden; padding: 2px 0; }
+.katex { font-size: 1.05em; }

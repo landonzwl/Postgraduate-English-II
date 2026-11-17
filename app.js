@@ -184,13 +184,35 @@ function renderPassage(paras) {
 /* ---------- 渲染 ---------- */
 function render() {
   window.scrollTo(0, 0);
-  if (route.view === 'home') return viewHome();
-  if (route.view === 'paper') return viewPaper(route.y);
-  if (route.view === 'quiz') return viewQuiz();
-  if (route.view === 'summary') return viewSummary();
-  if (route.view === 'wrong') return viewWrong();
-  if (route.view === 'self') return viewSelf(route.y, route.sec);
+  let r;
+  if (route.view === 'home') r = viewHome();
+  else if (route.view === 'paper') r = viewPaper(route.y);
+  else if (route.view === 'quiz') r = viewQuiz();
+  else if (route.view === 'summary') r = viewSummary();
+  else if (route.view === 'wrong') r = viewWrong();
+  else if (route.view === 'self') r = viewSelf(route.y, route.sec);
+  renderMath(app);
+  return r;
 }
+
+/* ---------- KaTeX 公式渲染（数学等公式科目；未加载 CDN 时纯文本兜底） ---------- */
+function renderMath(root) {
+  try {
+    if (!window.renderMathInElement || !root) return;
+    window.renderMathInElement(root, {
+      delimiters: [
+        { left: '$$', right: '$$', display: true },
+        { left: '\\[', right: '\\]', display: true },
+        { left: '\\(', right: '\\)', display: false },
+        { left: '$', right: '$', display: false },
+      ],
+      throwOnError: false,
+      ignoredTags: ['script', 'noscript', 'style', 'textarea', 'pre', 'code', 'option'],
+    });
+  } catch (e) { /* 公式渲染失败不影响功能 */ }
+}
+// KaTeX 为 defer 加载，晚于首帧渲染：加载完成后补渲染一次
+document.addEventListener('DOMContentLoaded', () => renderMath(app));
 
 function viewHome() {
   const years = allYears().reverse();
